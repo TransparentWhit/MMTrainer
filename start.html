@@ -76,7 +76,7 @@
         <div class="small muted" style="margin-bottom:6px">不同省份影响初始经费和训练质量。<strong>强省</strong>资源丰富<strong>弱省</strong>具有挑战性。</div>
         <div id="map-container"></div>
         <div id="prov-info-panel">请在地图上点击选择省份</div>
-        <div id="climate-info-panel" class="climate-info-panel" style="margin-top:8px;padding:8px 12px;background:#f5f7fa;border:1px solid #e4e7ed;border-radius:6px;font-size:13px;line-height:1.7;color:#555;display:none;"></div>
+        <div id="prov-detail-panel" class="prov-detail-panel" style="margin-top:8px;padding:10px 14px;background:#f9fafb;border:1px solid #e4e7ed;border-radius:6px;font-size:13px;line-height:1.8;color:#555;display:none;"></div>
         <input type="hidden" id="start-prov" value="1" />
 
         <div class="step-actions">
@@ -110,8 +110,8 @@
         <div class="step-actions">
           <button class="btn btn-ghost" id="step3-prev">← 上一步</button>
           <button class="btn btn-ghost" id="start-help">查看详细帮助</button>
-          <button class="btn" id="daily-challenge-btn">📅 今日挑战</button>
-          <button class="btn" id="start-button">开始游戏 🚀</button>
+          <button class="btn" id="daily-challenge-btn">今日挑战</button>
+          <button class="btn" id="start-button">开始游戏</button>
         </div>
       </div>
     </div><!-- .step-body -->
@@ -122,6 +122,7 @@
 <script src="lib/climate.js"></script>
 <script src="events.js"></script>
 <script src="lib/facilities.js"></script>
+<script src="lib/provinces.js"></script>
 <script src="lib/constants.js"></script>
 <script src="lib/utils.js"></script>
 <script src="lib/models.js"></script>
@@ -259,7 +260,21 @@
             if(pid !== undefined && typeof PROVINCES !== 'undefined' && PROVINCES[pid]){
               var p = PROVINCES[pid];
               var adjustedBudget = getAdjustedBudget(p.baseBudget);
-              return params.name + '<br/>类型：' + p.type + '<br/>初始经费：¥' + adjustedBudget.toLocaleString();
+              var tip = '<strong>' + params.name + '</strong>（' + p.type + '）<br/>初始经费：¥' + adjustedBudget.toLocaleString();
+              if(p.description){
+                tip += '<br/><span style="color:#888;font-size:12px;">' + p.description + '</span>';
+              }
+              if(p.initialFacilities){
+                var facNames = {'computer':'计算机','network':'网络','fan':'电扇','ac':'空调','library':'资料库'};
+                var facParts = [];
+                for(var fk in p.initialFacilities){
+                  if(p.initialFacilities.hasOwnProperty(fk) && p.initialFacilities[fk] > 0){
+                    facParts.push((facNames[fk]||fk) + ' Lv.' + p.initialFacilities[fk]);
+                  }
+                }
+                if(facParts.length > 0) tip += '<br/>初始设施：' + facParts.join('，');
+              }
+              return tip;
             }
             return params.name;
           }
@@ -300,6 +315,8 @@
         if(params.name === '台湾省' || params.name === '南海诸岛'){
           myChart.dispatchAction({ type: 'unselect', seriesIndex: 0, name: params.name });
           infoPanel.innerHTML = '<span style="color:#E6A23C;">该区域暂不可选</span>';
+          var dp = document.getElementById('prov-detail-panel');
+          if(dp) dp.style.display = 'none';
           return;
         }
         if(!params.name) return;
@@ -311,6 +328,8 @@
           handleProvLanguageSwitch(pid);
         } else {
           infoPanel.innerHTML = '<span style="color:#E6A23C;">该区域暂不可选</span>';
+          var dp2 = document.getElementById('prov-detail-panel');
+          if(dp2) dp2.style.display = 'none';
         }
       });
 
@@ -337,59 +356,66 @@
 
     function updateProvInfo(mapName){
       var pid = MAP_NAME_TO_PROVINCE_ID[mapName];
+      var detailPanel = document.getElementById('prov-detail-panel');
+
       if(pid !== undefined && typeof PROVINCES !== 'undefined' && PROVINCES[pid]){
         var p = PROVINCES[pid];
         var adjustedBudget = getAdjustedBudget(p.baseBudget);
         var tagClass = p.type === '强省' ? 'prov-type-strong' : (p.type === '普通省' ? 'prov-type-normal' : 'prov-type-weak');
         infoPanel.innerHTML = '当前选择：<strong>' + mapName + '</strong><span class="prov-type-tag ' + tagClass + '">' + p.type + '</span> 初始经费：¥' + adjustedBudget.toLocaleString();
 
-        // 更新气候摘要面板
-        updateClimatePanel(mapName);
+        // 构建统一详情面板
+        var sections = [];
+
+        // 1) 省份描述
+        if(p.description){
+          sections.push('<div class="prov-detail-section"><span class="prov-detail-label">简介</span><span class="prov-detail-text">' + p.description + '</span></div>');
+        }
+
+        // 2) 气候摘要
+        if(typeof getProvinceClimateSummary === 'function'){
+          var summary = getProvinceClimateSummary(mapName);
+          if(summary){
+            var tempParts = [];
+            summary.seasons.forEach(function(s){ tempParts.push(summary.seasonLabels[s] + summary.avgTemp[s] + '℃'); });
+            var precipParts = [];
+            summary.seasons.forEach(function(s){ precipParts.push(summary.seasonLabels[s] + Math.round(summary.precipProb[s]*100) + '%'); });
+            var extremeLines = [];
+            summary.extremeWeather.forEach(function(ew){
+              var lc = ew.level==='高'?'#F56C6C':(ew.level==='中'?'#E6A23C':(ew.level==='低'?'#67C23A':'#999'));
+              extremeLines.push('<span style="white-space:nowrap">' + ew.label + '（<span style="color:' + lc + ';font-weight:600">' + ew.level + '</span>）</span>');
+            });
+            sections.push('<div class="prov-detail-section"><span class="prov-detail-label">气候</span>' +
+              '<span>气温：' + tempParts.join(' ') + '；降水概率：' + precipParts.join(' ') + '；极端天气：' + extremeLines.join(' ') + '</span></div>');
+          }
+        }
+
+        // 3) 初始设施
+        var fac = p.initialFacilities;
+        if(fac){
+          var facNames = {'computer':'计算机','network':'网络','fan':'电扇','ac':'空调','library':'资料库'};
+          var facLines = [];
+          for(var fk in fac){
+            if(fac.hasOwnProperty(fk)){
+              var lv = fac[fk];
+              facLines.push('<span class="facility-init-item"><span class="facility-init-name">' + (facNames[fk]||fk) + '</span><span class="facility-init-level">Lv.' + lv + '</span></span>');
+            }
+          }
+          if(facLines.length > 0){
+            sections.push('<div class="prov-detail-section"><span class="prov-detail-label">初始设施</span>' + facLines.join(' ') + '</div>');
+          }
+        }
+
+        if(sections.length > 0){
+          detailPanel.innerHTML = sections.join('');
+          detailPanel.style.display = 'block';
+        } else {
+          detailPanel.style.display = 'none';
+        }
       } else {
         infoPanel.textContent = '请在地图上点击选择省份';
-        var climatePanel = document.getElementById('climate-info-panel');
-        if(climatePanel) climatePanel.style.display = 'none';
+        if(detailPanel) detailPanel.style.display = 'none';
       }
-    }
-
-    function updateClimatePanel(mapName){
-      var climatePanel = document.getElementById('climate-info-panel');
-      if(!climatePanel) return;
-      if(typeof getProvinceClimateSummary !== 'function'){
-        climatePanel.style.display = 'none';
-        return;
-      }
-      var summary = getProvinceClimateSummary(mapName);
-      if(!summary){
-        climatePanel.style.display = 'none';
-        return;
-      }
-
-      // 四季平均气温
-      var tempParts = [];
-      summary.seasons.forEach(function(s){
-        tempParts.push(summary.seasonLabels[s] + summary.avgTemp[s] + '℃');
-      });
-
-      // 四季降水概率
-      var precipParts = [];
-      summary.seasons.forEach(function(s){
-        var pct = Math.round(summary.precipProb[s] * 100);
-        precipParts.push(summary.seasonLabels[s] + pct + '%');
-      });
-
-      // 极端天气
-      var extremeLines = [];
-      summary.extremeWeather.forEach(function(ew){
-        var levelColor = ew.level === '高' ? '#F56C6C' : (ew.level === '中' ? '#E6A23C' : (ew.level === '低' ? '#67C23A' : '#999'));
-        extremeLines.push('<span style="white-space:nowrap">' + ew.label + '（<span style="color:' + levelColor + ';font-weight:600">' + ew.level + '</span>）</span>');
-      });
-
-      climatePanel.innerHTML =
-        '<div><strong>气温：</strong>' + tempParts.join('  ') + '</div>' +
-        '<div><strong>降水概率：</strong>' + precipParts.join('  ') + '</div>' +
-        '<div><strong>极端天气：</strong>' + extremeLines.join('  ') + '</div>';
-      climatePanel.style.display = 'block';
     }
 
     // 根据当前难度计算调整后的经费
@@ -419,7 +445,7 @@
   }
   // ============ 地图省份选择 end ============
 
-    // 轮播式难度选择（东方Project风格）
+    // 轮播式难度选择（三卡并排，弹性动画）
     function renderDiffGrid(){
       var defs = [
         {v:1, label:'简单', desc:'适合初次体验的人', detail:'', stats:[
@@ -441,14 +467,11 @@
       var initialVal = parseInt(hidden.value) || 2;
       for(var i = 0; i < defs.length; i++){ if(defs[i].v === initialVal){ currentIndex = i; break; } }
 
-      var isAnimating = false;
-      var ANIM_DURATION = 300; // 与CSS过渡时长保持同步
-      var DETAIL_FADE_GAP = 140; // 详情面板先淡出、再更新内容、再淡入的间隔
-
-      function buildCard(def, extraClass){
+      // 构建单张卡片
+      function buildCard(def, index){
         var card = document.createElement('div');
-        card.className = 'diff-carousel-card' + (extraClass ? ' ' + extraClass : '');
-        card.dataset.val = def.v;
+        card.className = 'diff-carousel-card';
+        card.dataset.index = '' + index;
         var nameEl = document.createElement('div');
         nameEl.className = 'diff-card-name';
         nameEl.textContent = def.label;
@@ -457,14 +480,19 @@
         descEl.textContent = def.desc;
         card.appendChild(nameEl);
         card.appendChild(descEl);
+        // 点击侧边卡片切换到该难度
+        card.addEventListener('click', function(){
+          if(parseInt(card.dataset.index) !== currentIndex){
+            setActive(parseInt(card.dataset.index));
+          }
+        });
         return card;
       }
 
+      // 更新详情面板
       function updateDetail(def){
         if(!detail) return;
-        // 先淡出详情面板
         detail.classList.remove('diff-detail-visible');
-        // 等待淡出完成后更新内容并淡入
         clearTimeout(detail._fadeTimer);
         detail._fadeTimer = setTimeout(function(){
           var html = '<div class="diff-detail-desc">' + def.detail + '</div>';
@@ -475,54 +503,36 @@
           }
           html += '</div>';
           detail.innerHTML = html;
-          // 触发回流后淡入
           void detail.offsetWidth;
           detail.classList.add('diff-detail-visible');
-        }, DETAIL_FADE_GAP);
+        }, 160);
       }
 
-      function showCard(index, direction){
-        if(isAnimating) return;
+      // 设置激活卡片
+      function setActive(index){
         if(index < 0 || index >= defs.length) return;
-        if(index === currentIndex) return;
-
-        isAnimating = true;
-        var oldCard = track.querySelector('.diff-carousel-card');
-        var newDef = defs[index];
-
-        // 确定进出方向对应的CSS类
-        var enterClass = direction === 'next' ? 'carousel-enter-right' : 'carousel-enter-left';
-        var exitClass  = direction === 'next' ? 'carousel-exit-left'  : 'carousel-exit-right';
-
-        // 创建新卡片，初始状态为离屏
-        var newCard = buildCard(newDef, enterClass);
-        track.appendChild(newCard);
-
-        // 强制回流，确保浏览器识别起始状态
-        void newCard.offsetWidth;
-
-        // 同时触发旧卡片退出和新卡片进入
-        if(oldCard){ oldCard.classList.add(exitClass); }
-        newCard.classList.remove(enterClass);
-        newCard.classList.add('carousel-active');
-
-        // 更新隐藏select和详情面板
-        hidden.value = '' + newDef.v;
-        updateDetail(newDef);
         currentIndex = index;
-
-        // 动画结束后清理旧卡片
-        setTimeout(function(){
-          if(oldCard && oldCard.parentNode) oldCard.parentNode.removeChild(oldCard);
-          isAnimating = false;
-        }, ANIM_DURATION + 20);
+        var cards = track.querySelectorAll('.diff-carousel-card');
+        cards.forEach(function(card){
+          var ci = parseInt(card.dataset.index);
+          if(ci === index){
+            card.classList.add('carousel-active');
+          } else {
+            card.classList.remove('carousel-active');
+          }
+        });
+        hidden.value = '' + defs[index].v;
+        updateDetail(defs[index]);
       }
 
-      // 初始渲染
+      // 初始渲染：三张卡片全部生成
       track.innerHTML = '';
-      var initialCard = buildCard(defs[currentIndex], 'carousel-active');
-      track.appendChild(initialCard);
-      // 初始详情直接显示，不需要动画
+      for(var i = 0; i < defs.length; i++){
+        var card = buildCard(defs[i], i);
+        if(i === currentIndex) card.classList.add('carousel-active');
+        track.appendChild(card);
+      }
+      // 初始详情
       if(detail){
         var d = defs[currentIndex];
         var html = '<div class="diff-detail-desc">' + d.detail + '</div>';
@@ -537,16 +547,16 @@
         detail.classList.add('diff-detail-visible');
       }
 
-      // 绑定箭头事件
+      // 箭头按钮
       var prevBtn = document.getElementById('diff-prev');
       var nextBtn = document.getElementById('diff-next');
-      if(prevBtn) prevBtn.addEventListener('click', function(){ showCard(currentIndex - 1, 'prev'); });
-      if(nextBtn) nextBtn.addEventListener('click', function(){ showCard(currentIndex + 1, 'next'); });
+      if(prevBtn) prevBtn.addEventListener('click', function(){ setActive((currentIndex - 1 + defs.length) % defs.length); });
+      if(nextBtn) nextBtn.addEventListener('click', function(){ setActive((currentIndex + 1) % defs.length); });
 
-      // 支持键盘左右方向键切换
+      // 键盘左右键
       document.addEventListener('keydown', function(e){
-        if(e.key === 'ArrowLeft'){ showCard(currentIndex - 1, 'prev'); }
-        if(e.key === 'ArrowRight'){ showCard(currentIndex + 1, 'next'); }
+        if(e.key === 'ArrowLeft'){ setActive((currentIndex - 1 + defs.length) % defs.length); }
+        if(e.key === 'ArrowRight'){ setActive((currentIndex + 1) % defs.length); }
       });
     }
 
@@ -684,9 +694,6 @@
   })();
 </script>
 <script>
-  window.addEventListener('load', ()=>{
-    alert('游戏正在持续更新，测试版本不代表最终品质，渲染错误、逻辑异常和平衡度问题随时可能发生，在github提出的issue会在每天中午统一处理，欢迎反馈。最终更新为2026/7/1 --seve42');
-  });
 </script>
   <footer style="text-align:center;padding:12px 8px;color:#666;font-size:13px;border-top:1px solid #eee;margin-top:18px">
     作者 @Dreamers-seve · 洛谷: <a href="https://www.luogu.com.cn/user/668972" target="_blank" rel="noopener">https://www.luogu.com.cn/user/668972</a> · GitHub: <a href="https://github.com/seve42/OItrainer" target="_blank" rel="noopener">https://github.com/seve42/OItrainer</a>

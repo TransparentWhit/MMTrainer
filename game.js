@@ -1171,8 +1171,11 @@ function initGame(difficulty, province_choice, student_count){
   game.difficulty = clampInt(difficulty,1,3);
   let prov = PROVINCES[province_choice] || PROVINCES[1];
   game.province_id = province_choice;
-  game.province_name = prov.name; game.province_type = prov.type; game.is_north = prov.isNorth; game.budget = prov.baseBudget; game.base_comfort = prov.isNorth?BASE_COMFORT_NORTH:BASE_COMFORT_SOUTH;
-  try{ game.province_climate = prov.climate || null; }catch(e){ game.province_climate = null; }
+  game.province_name = prov.name; game.province_type = prov.type; game.is_north = prov.isNorth; game.budget = prov.baseBudget;
+  // 使用 provinces.js 提供的 comfort 计算函数
+  game.base_comfort = (typeof getProvinceBaseComfort === 'function') ? getProvinceBaseComfort(province_choice) : (prov.isNorth ? BASE_COMFORT_NORTH : BASE_COMFORT_SOUTH);
+  // 气候关联：通过 climateKey 可在运行时查询 climate.js 数据
+  try{ game.province_climate = prov.climateKey || null; }catch(e){ game.province_climate = null; }
   
   // 如果选择香港(14)或澳门(25)，设置使用繁体中文
   if (province_choice === 14 || province_choice === 25) {
@@ -1187,6 +1190,9 @@ function initGame(difficulty, province_choice, student_count){
   
   if(game.difficulty===1){ game.budget = Math.floor(game.budget * EASY_MODE_BUDGET_MULTIPLIER); }
   else if(game.difficulty===3){ game.budget = Math.floor(game.budget * HARD_MODE_BUDGET_MULTIPLIER); }
+
+  // 预留：应用省份初始设施加成
+  try{ if(typeof applyProvinceInitialFacilities === 'function') applyProvinceInitialFacilities(game, province_choice); }catch(e){}
   
   let recruitedStudents = [];
   try {
@@ -1205,12 +1211,20 @@ function initGame(difficulty, province_choice, student_count){
   }
   
   game.initial_students = student_count;
-  let min_val,max_val;
-  if(game.province_type==="强省"){ min_val = STRONG_PROVINCE_MIN_ABILITY; max_val = STRONG_PROVINCE_MAX_ABILITY; }
-  else if(game.province_type==="弱省"){ min_val = WEAK_PROVINCE_MIN_ABILITY; max_val = WEAK_PROVINCE_MAX_ABILITY; }
-  else { min_val = NORMAL_PROVINCE_MIN_ABILITY; max_val = NORMAL_PROVINCE_MAX_ABILITY; }
-  if(game.difficulty===1){ min_val += EASY_MODE_ABILITY_BONUS; max_val += EASY_MODE_ABILITY_BONUS; }
-  else if(game.difficulty===3){ min_val -= HARD_MODE_ABILITY_PENALTY; max_val -= HARD_MODE_ABILITY_PENALTY; }
+  // 使用 provinces.js 提供的初始能力范围函数
+  let range;
+  if(typeof getProvinceAbilityRange === 'function'){
+    range = getProvinceAbilityRange(province_choice, game.difficulty);
+  } else {
+    let min_val, max_val;
+    if(game.province_type==="强省"){ min_val = STRONG_PROVINCE_MIN_ABILITY; max_val = STRONG_PROVINCE_MAX_ABILITY; }
+    else if(game.province_type==="弱省"){ min_val = WEAK_PROVINCE_MIN_ABILITY; max_val = WEAK_PROVINCE_MAX_ABILITY; }
+    else { min_val = NORMAL_PROVINCE_MIN_ABILITY; max_val = NORMAL_PROVINCE_MAX_ABILITY; }
+    if(game.difficulty===1){ min_val += EASY_MODE_ABILITY_BONUS; max_val += EASY_MODE_ABILITY_BONUS; }
+    else if(game.difficulty===3){ min_val -= HARD_MODE_ABILITY_PENALTY; max_val -= HARD_MODE_ABILITY_PENALTY; }
+    range = { min: min_val, max: max_val };
+  }
+  let min_val = range.min, max_val = range.max;
   game.students = [];
   
   for(let recruited of recruitedStudents){

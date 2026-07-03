@@ -78,3 +78,23 @@ function debugzak() {
   
   alert(`🔧 已创建"${superStudent.name}"\n 已跳转到第${game.week}周\n 已授予所有晋级资格\n`);
 }
+
+/**
+ * 调试函数：直接打开设施升级页面
+ * 使用方法：在浏览器控制台中输入 debugFacility() 即可
+ */
+function debugFacility() {
+  if(typeof game === 'undefined' || !game) {
+    console.error('游戏未初始化，请先开始游戏');
+    alert('请先开始游戏再使用调试功能');
+    return;
+  }
+
+  if(typeof showFacilityUpgradeModal === 'function') {
+    console.log('[调试] 打开设施升级页面...');
+    showFacilityUpgradeModal();
+  } else {
+    console.error('showFacilityUpgradeModal 函数未加载');
+    alert('设施升级模块未加载，请检查 facilities.js 是否已引入');
+  }
+}
